@@ -6,6 +6,9 @@ const mongoose = require('mongoose')
 const encrypt = require('mongoose-encryption')
 const md5 = require('md5')
 const bcrypt = require('bcrypt')
+const session = require('express-session')
+const passport = require('passport')
+const passportLocalMongoose = require('passport-local-mongoose')
 
 
 const app = express();
@@ -16,6 +19,13 @@ const saltRounds = 10;
 app.use(bodyParser.urlencoded({extended:true}));
 app.set('view engine','ejs')
 app.use(express.static("public"))
+app.use(session({
+  secret:"ThisIsOurLittleSecret",
+  resave:false,
+  saveUninitialized:false,
+}))
+app.use(passport.initialize());
+app.use(passport.session());
 
 main().catch(err=>console.log(err));
 
@@ -23,18 +33,25 @@ async function main(){
 
   await mongoose.connect('mongodb://localhost:27017/userDB');
   const userSchema = new mongoose.Schema({
-    usrName:{
+    username:{
       type:String,
       required:true,
     },
-    password:{
-      type:String,
-      required:true
-    }
+    password:String,
+
   })
-  // let secret = process.env.SECRET_KEY
-  // userSchema.plugin(encrypt,{secret:secret,encryptedFields:['password']});
-  const User = mongoose.model('User',userSchema);
+
+  userSchema.plugin(passportLocalMongoose);
+
+
+  const User = new mongoose.model('User',userSchema);
+
+  // const User = require('./models/user');
+
+  passport.use(User.createStrategy());
+
+  passport.serializeUser(User.serializeUser());
+  passport.deserializeUser(User.deserializeUser());
 
   app.listen('3000',()=>{
     console.log('Starting on port 3000')
@@ -53,58 +70,59 @@ async function main(){
   })
 
   app.get('/secrets',(req,res)=>{
-    res.render('secrets')
+    if(req.isAuthenticated()){
+      res.render('secrets')
+    }else{
+      res.redirect('/login')
+    }
+  })
+
+  app.get('/logout',(req,res)=>{
+    req.logout();
+    res.redirect('/');
   })
 
 app.post('/register',(req,res)=>{
-  const password = req.body.password
   const username = req.body.username
+  const password = req.body.password
+  console.log(username,password);
 
-  bcrypt.hash(password,saltRounds,(err,hash)=>{
-    const newUser = new User({
-      usrName:username,
-      password:hash,
-    })
-    newUser.save(err=>{
-      if(err){
-        console.log(err)
-      }else{
-        res.render('secrets')
-      }
-    })
+  User.register({username:username,active:true},password,(err,user)=>{
+    if(err){
+      console.log(err)
+      res.redirect('/register')
+    }else{
+      const authenticate = passport.authenticate("local");
+
+      //I didn't quite understand the part about authentication.
+      authenticate(req,res,()=>{
+        res.redirect('/secrets');
+      })
+    }
   })
 
-
-})
+  })
 
 
 app.post('/login',(req,res)=>{
-  const username = req.body.username
-  const password = req.body.password
-  User.findOne({usrName:username},(err,userFound)=>{
-    if(err){
-      console.log(err)
-    }else{
-      if(!userFound){
-        console.log("This account hasn't been created ")
-        res.redirect('/login')
-      }else{
-        bcrypt.compare(password,userFound.password,(err,result)=>{
-          if(result === true){
-            res.redirect('/secrets')
-          }else{
-            console.log('Error!')
-          }
-        })
-          // if(userFound.password === password){
-          //   res.redirect('/secrets');
-          // res.redirect('/secrets');
-          }
+  const user = new User({
+    username:req.body.username,
+    password:req.body.password,
+  })
 
-      }
-    
+  req.login(user,(err)=>{
+    if(err){
+      console.log(err);
+      res.redirect('/login')
+    }
+
+    passport.authenticate('local')(req,res,()=>{
+      res.redirect('/secrets');
+    })
+
   })
 })
+
 }
 
 //   app.get('/secrets',(req,res)=>{
