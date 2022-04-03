@@ -8,7 +8,8 @@ const md5 = require('md5')
 const bcrypt = require('bcrypt')
 
 
-const app = express()
+const app = express();
+const saltRounds = 10;
 // console.log(process.env)
 
 
@@ -31,7 +32,7 @@ async function main(){
       required:true
     }
   })
-  let secret = process.env.SECRET_KEY
+  // let secret = process.env.SECRET_KEY
   // userSchema.plugin(encrypt,{secret:secret,encryptedFields:['password']});
   const User = mongoose.model('User',userSchema);
 
@@ -56,25 +57,30 @@ async function main(){
   })
 
 app.post('/register',(req,res)=>{
-  const password = md5(req.body.password)
+  const password = req.body.password
   const username = req.body.username
-  const newUser = new User({
-    usrName:username,
-    password:password
+
+  bcrypt.hash(password,saltRounds,(err,hash)=>{
+    const newUser = new User({
+      usrName:username,
+      password:hash,
+    })
+    newUser.save(err=>{
+      if(err){
+        console.log(err)
+      }else{
+        res.render('secrets')
+      }
+    })
   })
-  newUser.save(err=>{
-    if(err){
-      console.log(err)
-    }else{
-      res.render('secrets')
-    }
-  })
+
+
 })
 
 
 app.post('/login',(req,res)=>{
   const username = req.body.username
-  const password = md5(req.body.password)
+  const password = req.body.password
   User.findOne({usrName:username},(err,userFound)=>{
     if(err){
       console.log(err)
@@ -83,12 +89,20 @@ app.post('/login',(req,res)=>{
         console.log("This account hasn't been created ")
         res.redirect('/login')
       }else{
-          if(userFound.password === password){
-            res.redirect('/secrets');
+        bcrypt.compare(password,userFound.password,(err,result)=>{
+          if(result === true){
+            res.redirect('/secrets')
+          }else{
+            console.log('Error!')
+          }
+        })
+          // if(userFound.password === password){
+          //   res.redirect('/secrets');
+          // res.redirect('/secrets');
           }
 
       }
-    }
+    
   })
 })
 }
